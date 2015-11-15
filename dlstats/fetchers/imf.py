@@ -13,10 +13,89 @@ from re import match
 from time import sleep
 import requests
 from lxml import etree
+import io
 
+class Downloader():
+    
+    headers = {
+        'user-agent': 'dlstats - https://github.com/Widukind/dlstats'
+    }
+    
+    def __init__(self, url=None, filename=None, store_filepath=None, 
+                 timeout=None, max_retries=0, replace=True):
+        self.url = url
+        self.filename = filename
+        self.store_filepath = store_filepath
+        self.timeout = timeout
+        self.max_retries = max_retries
+        
+        if not self.store_filepath:
+            self.store_filepath = tempfile.mkdtemp()
+        else:
+            if not os.path.exists(self.store_filepath):
+                os.makedirs(self.store_filepath, exist_ok=True)
+        
+        self.filepath = os.path.abspath(os.path.join(self.store_filepath, self.filename))
+        
+        #TODO: force_replace ?
+        
+        if os.path.exists(self.filepath) and not replace:
+            raise Exception("filepath is already exist : %s" % self.filepath)
+        
+    def _download(self):
+        
+        #TODO: timeout
+        #TODO: max_retries (self.max_retries)
+        #TODO: analyse rate limit dans headers
+        
+        start = time.time()
+        try:
+            #TODO: Session ?
+            response = requests.get(self.url, 
+                                    timeout=self.timeout, 
+                                    stream=True, 
+                                    allow_redirects=True,
+                                    verify=False, #ssl
+                                    headers=self.headers)
 
+            if not response.ok:
+                msg = "download url[%s] - status_code[%s] - reason[%s]" % (self.url, 
+                                                                           response.status_code, 
+                                                                           response.reason)
+                logger.error(msg)
+                raise Exception(msg)
+            
+            with open(self.filepath,'wb') as f:
+                for chunk in response.iter_content():
+                    f.write(chunk)
+                    #TODO: flush ?            
+                
+            #TODO: response.close() ?
+            
+        except requests.exceptions.ConnectionError as err:
+            raise Exception("Connection Error")
+        except requests.exceptions.ConnectTimeout as err:
+            raise Exception("Connect Timeout")
+        except requests.exceptions.ReadTimeout as err:
+            raise Exception("Read Timeout")
+        except Exception as err:
+            raise Exception("Not captured exception : %s" % str(err))            
 
-
+        end = time.time() - start
+        logger.info("download file[%s] - END - time[%.3f seconds]" % (self.url, end))
+    
+    def get_filepath(self, force_replace=False):
+        
+        if os.path.exists(self.filepath) and force_replace:
+            os.remove(self.filepath)
+        
+        if not os.path.exists(self.filepath):
+            logger.info("not found file[%s] - download dataset url[%s]" % (self.filepath, self.url))
+            self._download()
+        else:
+            logger.info("use local dataset file [%s]" % self.filepath)
+        
+        return self.filepath
 
 class IMF(Fetcher):
     def __init__(self, db=None, es_client=None):
@@ -116,7 +195,7 @@ class IMF(Fetcher):
 
 
 class IFS_Data():
-    def __init__(self,dataset,url):
+    def __init__(self,dataset,url=None, filename=None, store_filepath=None, is_autoload=True):
         self.provider_name = dataset.provider_name
         self.dataset_code = dataset.dataset_code
         self.dimension_list = dataset.dimension_list
@@ -125,48 +204,75 @@ class IFS_Data():
         self.original_data = {}
         self.country_list= {}
         self.indicatore_list= {}
-    def load_original_data(self):        
-        with open('/home/salimeh/IFS/IFS_10-20-2015 20-09-38-08.csv') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader :
-                self.frequency = 'A'
-                plus_fre = 23    # Default base year in pandas.period is 1970, 1970-1947=23
-                if 'Q' in row["Time Period"]:
-                    self.frequency = 'Q'
-                    plus_fre = 23*4
-                if 'M' in row["Time Period"]: 
-                    self.frequency = 'M' 
-                    plus_fre = 23*12
-                self.key = row["Indicator Code"]+'.'+row["Country Code"] +'.'+ self.frequency 
-                if self.key in self.original_data.keys():
-                    self.original_data[self.key]["Country Code"] = row["Country Code"]
-                    self.original_data[self.key]["Indicator Code"] = row["Indicator Code"]
-                    self.original_data[self.key]["frequency"] =self.frequency
-                    self.original_data[self.key]["values"][pandas.Period(row["Time Period"].replace('M', '-'),self.frequency).ordinal+plus_fre-1] = row["Value"]
-                    self.original_data[self.key]["Status"][pandas.Period(row["Time Period"].replace('M', '-'),self.frequency).ordinal+plus_fre-1] = row["Status"]    
-                else:
-                    self.original_data[self.key] = {}
-                    self.original_data[self.key]["values"] =  ["na" for i in range(2015-1947)]
-                    self.original_data[self.key]["Status"] =  ["na" for i in range(2015-1947)]
-                    if self.frequency == 'M':                 
-                        self.original_data[self.key]["values"] =  ["na" for i in range(12*(2016-1947))] # there is 2015M6 ..
-                        self.original_data[self.key]["Status"] =  ["na" for i in range(12*(2016-1947))]
-                    if self.frequency == 'Q':
-                        self.original_data[self.key]["values"] =  ["na" for i in range(4*(2016-1947))]  # there is 2015Q1 ..
-                        self.original_data[self.key]["Status"] =  ["na" for i in range(4*(2016-1947))]
-                    self.original_data[self.key]["Country Code"] = row["Country Code"]
-                    self.original_data[self.key]["Indicator Code"] = row["Indicator Code"]
-                    self.original_data[self.key]["frequency"] =self.frequency
-                    self.original_data[self.key]["values"][pandas.Period(row["Time Period"].replace('M', '-'),self.frequency).ordinal+plus_fre-1] = row["Value"]
-                    self.original_data[self.key]["Status"][pandas.Period(row["Time Period"].replace('M', '-'),self.frequency).ordinal+plus_fre-1] = row["Status"]
-                if row["Country Code"] in self.country_list.keys():
-                    pass
-                else:
-                    self.country_list[row["Country Code"]] =  row['\ufeff"Country Name"']               
-                if row["Indicator Code"] in self.indicatore_list.keys():
-                    pass
-                else:    
-                    self.indicatore_list[row["Indicator Code"]] = row["Indicator Name"]   
+        
+    def make_url():
+        pass
+    def get_store_path(self):
+        return self.store_filepath or os.path.abspath(os.path.join(
+            tempfile.gettempdir(), 
+            self.dataset.provider_name, 
+            self.dataset.dataset_code))
+    
+    def _load_data(self, datas=None):
+        
+        kwargs = {}
+        
+        if not datas:
+            store_filepath = self.get_store_path()
+            # TODO: timeout, replace
+            download = Downloader(url=self.url, filename=self.filename, store_filepath=store_filepath)
+            
+            filepath = extract_zip_file(download.get_filepath())
+            _file = open(filepath)
+        else:
+            fileobj = io.StringIO(datas, newline="\n")
+            _file = fileobj
+    
+        self.load_original_data(csvfile=_file)
+        return
+        
+    def load_original_data(self,csvfile=None):        
+#        with open('/home/salimeh/IFS/IFS_10-20-2015 20-09-38-08.csv') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader :
+            self.frequency = 'A'
+            plus_fre = 23    # Default base year in pandas.period is 1970, 1970-1947=23
+            if 'Q' in row["Time Period"]:
+                self.frequency = 'Q'
+                plus_fre = 23*4
+            if 'M' in row["Time Period"]: 
+                self.frequency = 'M' 
+                plus_fre = 23*12
+            self.key = row["Indicator Code"]+'.'+row["Country Code"] +'.'+ self.frequency 
+            if self.key in self.original_data.keys():
+                self.original_data[self.key]["Country Code"] = row["Country Code"]
+                self.original_data[self.key]["Indicator Code"] = row["Indicator Code"]
+                self.original_data[self.key]["frequency"] =self.frequency
+                self.original_data[self.key]["values"][pandas.Period(row["Time Period"].replace('M', '-'),self.frequency).ordinal+plus_fre-1] = row["Value"]
+                self.original_data[self.key]["Status"][pandas.Period(row["Time Period"].replace('M', '-'),self.frequency).ordinal+plus_fre-1] = row["Status"]    
+            else:
+                self.original_data[self.key] = {}
+                self.original_data[self.key]["values"] =  ["na" for i in range(2015-1947)]
+                self.original_data[self.key]["Status"] =  ["na" for i in range(2015-1947)]
+                if self.frequency == 'M':                 
+                    self.original_data[self.key]["values"] =  ["na" for i in range(12*(2016-1947))] # there is 2015M6 ..
+                    self.original_data[self.key]["Status"] =  ["na" for i in range(12*(2016-1947))]
+                if self.frequency == 'Q':
+                    self.original_data[self.key]["values"] =  ["na" for i in range(4*(2016-1947))]  # there is 2015Q1 ..
+                    self.original_data[self.key]["Status"] =  ["na" for i in range(4*(2016-1947))]
+                self.original_data[self.key]["Country Code"] = row["Country Code"]
+                self.original_data[self.key]["Indicator Code"] = row["Indicator Code"]
+                self.original_data[self.key]["frequency"] =self.frequency
+                self.original_data[self.key]["values"][pandas.Period(row["Time Period"].replace('M', '-'),self.frequency).ordinal+plus_fre-1] = row["Value"]
+                self.original_data[self.key]["Status"][pandas.Period(row["Time Period"].replace('M', '-'),self.frequency).ordinal+plus_fre-1] = row["Status"]
+            if row["Country Code"] in self.country_list.keys():
+                pass
+            else:
+                self.country_list[row["Country Code"]] =  row['\ufeff"Country Name"']               
+            if row["Indicator Code"] in self.indicatore_list.keys():
+                pass
+            else:    
+                self.indicatore_list[row["Indicator Code"]] = row["Indicator Name"]   
         self.row_range = iter(range(len(self.original_data.keys())))        
         self.list_keys = list( self.original_data.keys())     
         self.release_date = datetime.strptime("06/11/15", "%d/%m/%y")
@@ -271,9 +377,9 @@ class WeoData():
         
 if __name__ == "__main__":
     w = IMF()
-    w.provider.update_database()
-    w.upsert_categories()
-    w.upsert_dataset('WEO') 
+#    w.provider.update_database()
+#    w.upsert_categories()
+#    w.upsert_dataset('WEO') 
     w.upsert_dataset('IFS') 
 
 

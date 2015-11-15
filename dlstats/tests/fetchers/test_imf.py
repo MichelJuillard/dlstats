@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from urllib.request import url2pathname, pathname2url
 
 from dlstats.fetchers._commons import Datasets
-from dlstats.fetchers import IMF
+from dlstats.fetchers import imf
 from dlstats import constants
 
 import unittest
@@ -29,7 +29,6 @@ DATASETS['ifs']["name"] = "ifs"
 DATASETS['ifs']["doc_href"] = None
 DATASETS['ifs']["last_update"] = datetime.datetime(2015,10,26)
 DATASETS['ifs']["filename"] = "IFS_11-05-2015 13-41-38-02"
-#DATASETS['ifs']['data_iterator'] = IMF.IFS_Data('ifs', is_autoload=False)
 DATASETS['ifs']["data"] = """"Country Name","Country Code","Indicator Name","Indicator Code","Time Period","Value","Status",
 "Country 1","010","Indicator 1","Code1",1980","12.3","",
 "Country 2","011","Indicator 2","Code2","1991","12.0","P",
@@ -39,15 +38,12 @@ DATASETS['ifs']["data"] = """"Country Name","Country Code","Indicator Name","Ind
 "Country 3","012","Indicator 3","Code3","1980Q3","12.5","",
 """
 
-
-def make_url(self):
+def get_store_path(self):
     import tempfile
-    filepath = os.path.abspath(os.path.join(tempfile.gettempdir(), 
-                                            self.provider_name, 
-                                            self.dataset_code,
-                                            "tests",
-                                            self.dataset_code+'.sdmx.zip'))
-    return "file:%s" % pathname2url(filepath)
+    return os.path.abspath(os.path.join(tempfile.gettempdir(), 
+                                        self.dataset.provider_name, 
+                                        self.dataset.dataset_code,
+                                        "tests"))
 
 def local_get(url, *args, **kwargs):
     "Fetch a stream from local files."
@@ -98,7 +94,7 @@ def load_fake_original_datas(select_dataset_code=None):
     key: DATASETS[dataset_code]['datas']
     """
     
-    fetcher = IMF()
+    fetcher = imf.IMF()
     
     results = {}
     
@@ -114,9 +110,9 @@ def load_fake_original_datas(select_dataset_code=None):
                     fetcher=fetcher, 
                     is_load_previous_version=False)
         
-        dataset_datas = dataset['data_iterator']
         if dataset_code == 'ifs':
-            dataset_datas.load_original_datas(dataset['datas'])
+            dataset_datas = imf.IFS_Data(_dataset, is_autoload=False)
+            dataset_datas._load_data(dataset['data'])
         
         results[dataset_code] = {'series': []}
 
@@ -168,7 +164,7 @@ class IMFDatasetsTestCase(BaseTestCase):
     def test_imf_ifs_original_data(self):
         
         # nosetests -s -v dlstats.tests.fetchers.test_imf:IMFDatasetsTestCase.test_ifs_original_data        
-#        datas = load_fake_original_datas('ifs')
+        datas = load_fake_original_datas('ifs')
         datas = {}
         print("")
         pprint(datas)
@@ -242,13 +238,12 @@ class IMFDatasetsDBTestCase(BaseDBTestCase):
     
     def setUp(self):
         BaseDBTestCase.setUp(self)
-        self.fetcher = IMF(db=self.db, es_client=self.es)
+        self.fetcher = imf.IMF(db=self.db, es_client=self.es)
         self.dataset_code = None
         self.dataset = None        
         self.filepath = None
 
-    @mock.patch('requests.get', local_get)
-    @mock.patch('dlstats.fetchers.imf.IMFData.make_url', make_url)    
+    @mock.patch('dlstats.fetchers.bis.BIS_Data.get_store_path', get_store_path)    
     def _common_tests(self):
 
         self._collections_is_empty()
@@ -275,7 +270,7 @@ class IMFDatasetsDBTestCase(BaseDBTestCase):
                            fetcher=self.fetcher)
 
         # manual Data for iterator
-        fetcher_data = imf.IFSData(dataset,filename=self.dataset_code) 
+        fetcher_data = imf.IFS_Data(dataset) 
         dataset.series.data_iterator = fetcher_data
         dataset.update_database()
 
@@ -291,7 +286,7 @@ class IMFDatasetsDBTestCase(BaseDBTestCase):
         self.assertEqual(series.count(), SERIES_COUNT)
         
         
-#    @unittest.skipIf(True, "TODO")    
+    @unittest.skipIf(True, "TODO")    
     def test_ifs(self):
         
         # nosetests -s -v dlstats.tests.fetchers.test_imf:IMFDatasetsDBTestCase.test_ifs
@@ -315,7 +310,6 @@ class IMFDatasetsDBTestCase(BaseDBTestCase):
         #TODO: clean filepath
 
 
-@unittest.skipIf(True, "TODO")    
 class LightIMFDatasetsDBTestCase(BaseDBTestCase):
     """Fetchers Tests - with DB and lights sources
     
@@ -333,8 +327,7 @@ class LightIMFDatasetsDBTestCase(BaseDBTestCase):
         self.dataset = None        
         self.filepath = None
         
-    @mock.patch('requests.get', local_get)
-    @mock.patch('dlstats.fetchers.IMF.IMFData.make_url', make_url)    
+    @mock.patch('dlstats.fetchers.bis.BIS_Data.get_store_path', get_store_path)    
     def _common_tests(self):
 
         self._collections_is_empty()
@@ -374,8 +367,8 @@ class LightIMFDatasetsDBTestCase(BaseDBTestCase):
 
         self._common_tests()
 
-    @mock.patch('requests.get', local_get)
-    @mock.patch('dlstats.fetchers.imf.IMFData.make_url', make_url)    
+    @unittest.skipIf(True, "TODO")    
+    @mock.patch('dlstats.fetchers.bis.BIS_Data.get_store_path', get_store_path)    
     def test_selected_datasets(self):
 
         # nosetests -s -v dlstats.tests.fetchers.test_imf:LightIMFDatasetsDBTestCase.test_selected_datasets()
