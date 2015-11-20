@@ -3,6 +3,8 @@
 import tempfile
 import datetime
 import os
+import pandas
+from io import StringIO
 from pprint import pprint
 from urllib.parse import urlparse
 from urllib.request import url2pathname, pathname2url
@@ -112,15 +114,9 @@ def load_fake_original_datas(select_dataset_code=None):
         
         if dataset_code == 'ifs':
             dataset_datas = imf.IFS_Data(_dataset, is_autoload=False)
-            dataset_datas._load_data(dataset['data'])
+            dataset_datas.load_original_data(StringIO(dataset['data']))
         
-        results[dataset_code] = {'series': []}
-
-        for d in dataset_datas.rows:
-            results[dataset_code]['series'].append(dataset_datas.build_serie(d))
-            
-    #pprint(results)
-    return results
+    return dataset_datas.original_data
 
 def load_fake_datas(select_dataset_code=None):
     """Load datas from DATASETS dict
@@ -165,9 +161,6 @@ class IMFDatasetsTestCase(BaseTestCase):
         
         # nosetests -s -v dlstats.tests.fetchers.test_imf:IMFDatasetsTestCase.test_ifs_original_data        
         datas = load_fake_original_datas('ifs')
-        datas = {}
-        print("")
-        pprint(datas)
 
         empty_values_a = ["na" for i in range(2015-1947)]
         empty_values_q = ["na" for i in range(4*(2015-1947))]
@@ -175,20 +168,21 @@ class IMFDatasetsTestCase(BaseTestCase):
         empty_status_a = empty_values_a
         empty_status_q = empty_values_q
         empty_status_m = empty_values_m
-        attempt = { "Code1.010.A": {"Country code": "010", "Indicator code": "Code1", "frequency": "A",
-                                    "values": empty_values_a, "status": empty_status_a}, 
-                    "Code2.011.A": {"Country code": "011", "Indicator code": "Code2", "frequency": "A",
-                                    "values": empty_values_a, "status": empty_status_a}, 
-                    "Code3.012.Q": {"Country code": "010", "Indicator code": "Code1", "frequency": "Q",
-                                    "values": empty_values_q, "status": empty_status_q}}
-        attempt["Code1.010.A"]["values"][1979-1947] = 10.3
-        attempt["Code1.010.A"]["values"][1980-1947] = 12.3
-        attempt["Code2.011.A"]["values"][1991-1947] = 12.0
-        attempt["Code2.011.A"]["values"][2001-1947] = 22.3
-        attempt["Code3.012.Q"]["values"][4*(1979-1947)+2] = 12.9
-        attempt["Code3.012.Q"]["values"][4*(1979-1947)+3] = 12.5
-        attempt["Code2.011.A"]["status"][1991-1947] = "P"
+        attempt = { "Code1.010.A": {"Country Code": "010", "Indicator Code": "Code1", "frequency": "A",
+                                    "values": empty_values_a, "Status": empty_status_a}, 
+                    "Code2.011.A": {"Country Code": "011", "Indicator Code": "Code2", "frequency": "A",
+                                    "values": empty_values_a, "Status": empty_status_a}, 
+                    "Code3.012.Q": {"Country Code": "012", "Indicator Code": "Code3", "frequency": "Q",
+                                    "values": empty_values_q, "Status": empty_status_q}}
+        attempt["Code1.010.A"]["values"][1979-1947] = '10.3'
+        attempt["Code1.010.A"]["values"][1980-1947] = '12.3'
+        attempt["Code2.011.A"]["values"][1991-1947] = '12.0'
+        attempt["Code2.011.A"]["values"][2001-1947] = '22.3'
+        attempt["Code3.012.Q"]["values"][4*(1979-1947)+2] = '12.9'
+        attempt["Code3.012.Q"]["values"][4*(1979-1947)+3] = '12.5'
+        attempt["Code2.011.A"]["Status"][1991-1947] = "P"
 
+        self.maxDiff = None
         self.assertDictEqual(datas, attempt)
 
         attemps_country_list = {"010": "Country 1",
